@@ -1,129 +1,101 @@
 #include <Wire.h>
-#include <Adafruit_MPU6050.h>
-#include <Adafruit_Sensor.h>
-#include <WiFi.h>
-#include <WiFiClientSecure.h>
-#include <PubSubClient.h>
+#include "MPU6050.h"
 #include <ESP32Servo.h>
 
-// Definição dos pinos
-#define PIR_PIN 12
-#define TRIG_PIN 14
-#define ECHO_PIN 13
-#define LED_R 5
-#define LED_G 18
-#define LED_B 19
-#define BUZZER_PIN 4
-#define SERVO_PIN 15
+#define RED_LED 5     // GPIO pin for RED LED
+#define GREEN_LED 18  // GPIO pin for GREEN LED
+#define BLUE_LED 19   // GPIO pin for BLUE LED
+#define Servo_PIN 15
+#define Trig_PIN 35
+#define Echo_PIN 33
+#define Potenciometro_PIN 12
+#define Buzzer_PIN 13
+MPU6050 mpu;
+Servo myServo;
 
-// Configuração WiFi
-const char* SSID = "CIT_Alunos";
-const char* PASSWORD = "alunos@2024";
+// Threshold values (adjust based on testing)
+const float MOVEMENT_THRESHOLD = 1.1;  // Moderate movement threshold
+const float EXTREME_THRESHOLD = 1.5;   // Extreme movement threshold (edge detection)
+const int DISTANCIA_MIN = 30;
 
-// Configuração MQTT
-const char* MQTT_SERVER = "test.mosquitto.org";
-const int MQTT_PORT = 1883;
-const char* MQTT_TOPIC = "monitoramento/alerta";
 
-// Instâncias globais
-WiFiClient espClient;
-PubSubClient client(espClient);
-Adafruit_MPU6050 mpu;
-Servo servoMotor;
-
-void setupWiFi() {
-    Serial.print("Conectando ao WiFi...");
-    WiFi.begin(SSID, PASSWORD);
-    while (WiFi.status() != WL_CONNECTED) {
-        delay(1000);
-        Serial.print(".");
-    }
-    Serial.println(" Conectado!");
-}
-
-void reconnectMQTT() {
-    while (!client.connected()) {
-        Serial.print("Conectando ao MQTT...");
-        if (client.connect("ESP32Monitor")) {
-            Serial.println(" Conectado!");
-            client.subscribe(MQTT_TOPIC);
-        } else {
-            Serial.print(" Falha, rc=");
-            Serial.println(client.state());
-            delay(5000);
-        }
-    }
-}
-
-float medirDistancia() {
-    digitalWrite(TRIG_PIN, LOW);
-    delayMicroseconds(2);
-    digitalWrite(TRIG_PIN, HIGH);
-    delayMicroseconds(10);
-    digitalWrite(TRIG_PIN, LOW);
-    long duration = pulseIn(ECHO_PIN, HIGH, 30000);
-    return duration > 0 ? duration * 0.034 / 2 : -1;
-}
-
-void ativarAlerta(String mensagem) {
-    Serial.println("🔴 ALERTA: " + mensagem);
-    client.publish(MQTT_TOPIC, mensagem.c_str());
-    digitalWrite(BUZZER_PIN, HIGH);
-    digitalWrite(LED_R, HIGH);
-    digitalWrite(LED_G, LOW);
-    digitalWrite(LED_B, LOW);
-    delay(2000);
-    digitalWrite(BUZZER_PIN, LOW);
-    digitalWrite(LED_R, LOW);  
-}
-
-void lerGiroscopio() {
-    sensors_event_t a, g, temp;
-    mpu.getEvent(&a, &g, &temp);
-    Serial.print("Giroscópio X: "); Serial.print(g.gyro.x);
-    Serial.print(" | Y: "); Serial.print(g.gyro.y);
-    Serial.print(" | Z: "); Serial.println(g.gyro.z);
-    
-    if (g.gyro.x < -0.10 || g.gyro.x > 0.10 || g.gyro.y < -0.10 || g.gyro.y > 0.10) {
-    Serial.println("⚠️ Movimento detectado! Ativando servo...");
-    servoMotor.write(90);
-    delay(1000);
-    servoMotor.write(0);
-  }
-
+long getDistance()
+{
+  digitalWrite(Trig_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(Trig_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(Trig_PIN, LOW);
+  long duration = pulseIn(Echo_PIN, HIGH, 30000);
+  Serial.println(duration);
+  return duration > 0 ? duration * 0.034 / 2 : -1;
+  
 }
 
 void setup() {
-    Serial.begin(115200);
-    pinMode(PIR_PIN, INPUT);
-    pinMode(TRIG_PIN, OUTPUT);
-    pinMode(ECHO_PIN, INPUT);
-    pinMode(LED_R, OUTPUT);
-    pinMode(LED_G, OUTPUT);
-    pinMode(LED_B, OUTPUT);
-    pinMode(BUZZER_PIN, OUTPUT);
-    servoMotor.attach(SERVO_PIN);
-    setupWiFi();
-    client.setServer(MQTT_SERVER, MQTT_PORT);
-    while (!mpu.begin()) {
-        Serial.println("MPU6050 não encontrado! Tentando novamente...");
-        delay(1000);
-    }
-    Serial.println("MPU6050 iniciado com sucesso!");
-    digitalWrite(LED_G, HIGH);
+  Serial.begin(115200);
+  Wire.begin(21, 22);  // SDA = GPIO 21, SCL = GPIO 22
+  mpu.initialize();
+
+  myServo.attach(Servo_PIN);
+  myServo.write(0);
+
+  pinMode(Potenciometro_PIN, INPUT);
+  pinMode(RED_LED, OUTPUT);
+  pinMode(GREEN_LED, OUTPUT);
+  pinMode(BLUE_LED, OUTPUT);
+  
+  pinMode(Trig_PIN, OUTPUT);
+  pinMode(Echo_PIN, INPUT);
+  pinMode(Buzzer_PIN, OUTPUT);
+
+  if (!mpu.testConnection()) {
+    Serial.println("MPU6050 connection failed!");
+    while (1)
+      ;
+  }
+  Serial.println("MPU6050 connected!");
+}
+
+void setLED(int r, int g, int b) {
+  digitalWrite(RED_LED, r);
+  digitalWrite(GREEN_LED, g);
+  digitalWrite(BLUE_LED, b);
 }
 
 void loop() {
-    if (!client.connected()) reconnectMQTT();
-    client.loop();
-    
-    if (digitalRead(PIR_PIN) == HIGH) ativarAlerta("Pessoa na cama!");
-    
-    float distancia = medirDistancia();
-    if (distancia > 0 && distancia < 4444 && digitalRead(PIR_PIN) == LOW) {
-        ativarAlerta("Usuário caiu da cama!");
-    }
-    
-    lerGiroscopio();
-    delay(1000);
+  int16_t ax, ay, az, gx, gy, gz;
+  mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+
+  int distance = getDistance();
+  // Convert raw values to approximate G-force
+  
+  int potValue = analogRead(Potenciometro_PIN);
+  int simulatedDistance = map(potValue,0,4095,2,50);
+  Serial.println(simulatedDistance);
+  float accelMagnitude = sqrt(sq(ax / 16384.0) + sq(ay / 16384.0) + sq(az / 16384.0));
+
+  Serial.print("Acceleration Magnitude: ");
+  Serial.println(accelMagnitude);
+  Serial.println(distance);
+  if(simulatedDistance > 30)
+  {
+      digitalWrite(Buzzer_PIN, HIGH);
+      delay(2000);
+      digitalWrite(Buzzer_PIN, LOW);
+  }
+  // Determine LED state
+  if (accelMagnitude < 1.1 ) {
+    setLED(1,0, 1);  // Green (Still) 1 0 1 
+    delay(1500);
+  } else if (accelMagnitude > 2 ) {
+    setLED(1, 1, 0);  // Red (Extreme movement)011
+    delay(1500);
+    myServo.write(90);
+  } else {
+    setLED(1, 0,0);  // Yellow (Moderate movement)
+    delay(1500);
+  }
+
+  delay(500);  // Adjust delay as needed
 }
