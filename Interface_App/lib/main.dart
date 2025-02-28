@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 void main() {
   runApp(MyApp());
@@ -38,22 +40,38 @@ class CadastroScreen extends StatefulWidget {
 }
 
 class _CadastroScreenState extends State<CadastroScreen> {
+  final _formKey = GlobalKey<FormState>();
   final _nomeController = TextEditingController();
   final _alaController = TextEditingController();
-  final _formKey = GlobalKey<FormState>();
 
-  void _submitForm() {
+  // Função para enviar os dados para a API Flask
+  void _submitForm() async {
     if (_formKey.currentState?.validate() ?? false) {
-      // Exibir informações de cadastro
       final nome = _nomeController.text;
       final ala = _alaController.text;
 
-      // Exibe um SnackBar com os dados preenchidos
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Paciente: $nome\nAla: $ala')),
+      // Criar JSON para envio
+      final paciente = jsonEncode({"nome": nome, "ala": ala});
+
+      // Enviar para a API Flask
+      final response = await http.post(
+        Uri.parse('http://10.0.2.2:5000/cadastrar'), // Mudando para a URL do Flask
+        headers: {"Content-Type": "application/json"},
+        body: paciente,
       );
 
-      // Limpar os campos após o envio
+      // Exibir mensagem de sucesso ou erro
+      if (response.statusCode == 200) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Paciente cadastrado com sucesso!')),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro ao cadastrar paciente.')),
+        );
+      }
+
+      // Limpar os campos após envio
       _nomeController.clear();
       _alaController.clear();
     }
